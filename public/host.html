@@ -3,53 +3,66 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Spieleabend – Kommandozentrale</title>
+  <title>Kommandozentrale – Spieleabend</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <div class="host">
     <div class="host-top">
       <div>
-        <h1>🎛️ Kommandozentrale</h1>
-        <div class="muted" id="status">Verbinde…</div>
+        <div class="brand">KOMMANDOZENTRALE</div>
+        <div class="muted" id="status" style="font-size:.85rem;margin-top:4px">Verbinde …</div>
       </div>
       <div class="join-box">
         <img id="qr" alt="QR-Code zum Beitreten">
         <div>
-          <div class="muted">Raum-Code</div>
+          <div class="label">Raum-Code</div>
           <div class="room-code" id="code">····</div>
           <div class="join-url" id="join-url"></div>
         </div>
       </div>
-      <div class="host-actions">
-        <a class="btn" id="screen-link" target="_blank">📺 Bildschirm öffnen</a>
-        <button class="btn" id="lock">🔓 Lobby offen</button>
-        <button class="btn danger" id="close">✖ Raum schließen</button>
+      <div class="grow"></div>
+      <div class="row">
+        <span class="toggle" id="spicy"><span class="sw"></span>🌶️ Spicy</span>
+        <span class="toggle" id="lock"><span class="sw"></span>Lobby sperren</span>
+        <a class="btn sm" id="screen-link" target="_blank">Bildschirm öffnen ↗</a>
+        <button class="btn sm ghost danger" id="close">Raum schließen</button>
       </div>
     </div>
 
     <div class="host-grid">
-      <aside class="panel">
-        <h2><span>👥 Spieler (<span id="pcount">0</span>)</span><button class="btn small" id="reset">Punkte ↺</button></h2>
-        <ul class="plist" id="players"></ul>
-        <p class="muted" id="no-players">Noch niemand da. Lass deine Freunde den Code eingeben oder den QR-Code scannen!</p>
+      <aside>
+        <div class="panel" id="me-panel"></div>
+        <div class="panel">
+          <div class="panel-head"><h3>Spieler <span class="muted" id="pcount"></span></h3><button class="btn xs ghost" id="reset" title="Alle Punkte auf 0">Punkte zurücksetzen</button></div>
+          <ul class="plist" id="players"></ul>
+          <p class="muted" id="no-players" style="font-size:.9rem">Noch niemand da. Code eingeben oder QR-Code scannen lassen.</p>
+        </div>
       </aside>
 
       <main>
-        <section class="panel" id="picker">
-          <h2>🎲 Spiel auswählen</h2>
+        <section id="picker">
           <div class="games-grid" id="games"></div>
         </section>
 
-        <section class="panel hidden" id="running">
-          <div class="now-playing">
-            <h2 id="game-title"></h2>
-            <button class="btn danger" id="end-game">⏹ Spiel beenden</button>
+        <section id="running" class="hidden">
+          <div class="game-head">
+            <h1 id="game-title" style="margin:0"></h1>
+            <button class="btn sm ghost danger" id="end-game">Spiel beenden</button>
           </div>
-          <div class="controls" id="controls"></div>
-          <div class="preview" id="preview"></div>
+          <div class="op-grid">
+            <div>
+              <div class="controls" id="controls"></div>
+              <div class="label" style="margin:16px 0 8px">Das sehen alle</div>
+              <div class="preview" id="preview"></div>
+            </div>
+            <div>
+              <div class="panel my-player hidden" id="my-player"></div>
+              <div id="host-panel" style="margin-top:14px"></div>
+            </div>
+          </div>
         </section>
       </main>
     </div>
@@ -63,7 +76,10 @@
     let session = params.get('new') ? null : JSON.parse(localStorage.getItem(KEY) || 'null');
     let state = null;
     let joinBase = location.origin;
+    let hostPhoto = localStorage.getItem('spieleabend.photo') || null;
     history.replaceState(null, '', '/host.html');
+
+    bindPlayerInputs($('#my-player'));
 
     function toast(msg) {
       const t = document.createElement('div');
@@ -72,19 +88,18 @@
       document.body.appendChild(t);
       setTimeout(() => t.remove(), 3500);
     }
-
-    function cmd(data) {
+    function cmd(data, after) {
       socket.emit('host:cmd', data, (res) => {
         if (res && !res.ok && res.error) toast(res.error);
+        else if (after) after(res);
       });
     }
 
-    // Wenn der Host über localhost geöffnet ist, zeigen wir die WLAN-Adresse für die Handys
+    // Läuft die Zentrale auf localhost, zeigen wir die WLAN-Adresse für die Handys
     fetch('/api/info').then((r) => r.json()).then((info) => {
       if (['localhost', '127.0.0.1', '::1'].includes(location.hostname) && info.lan.length) joinBase = info.lan[0];
       updateJoin();
     });
-
     function updateJoin() {
       if (!session) return;
       const url = `${joinBase}/?code=${session.code}`;
@@ -92,7 +107,7 @@
       $('#join-url').textContent = url.replace(/^https?:\/\//, '');
       $('#qr').src = `/qr.svg?u=${encodeURIComponent(url)}`;
       $('#screen-link').href = `/screen.html?code=${session.code}`;
-      document.title = `Spieleabend ${session.code} – Kommandozentrale`;
+      document.title = `${session.code} – Kommandozentrale`;
     }
 
     function create() {
@@ -102,46 +117,53 @@
         updateJoin();
       });
     }
-
     socket.on('connect', () => {
       if (!session) return create();
-      socket.emit('host:resume', session, (res) => {
-        if (res.ok) updateJoin();
-        else create();
-      });
+      socket.emit('host:resume', session, (res) => (res.ok ? updateJoin() : create()));
     });
-    socket.on('disconnect', () => ($('#status').textContent = '⚠️ Verbindung verloren – verbinde neu…'));
+    socket.on('disconnect', () => ($('#status').textContent = 'Verbindung verloren – verbinde neu …'));
 
-    // --- Spielauswahl (einmalig aufbauen, damit Eingaben erhalten bleiben)
+    // ---- Spielauswahl (einmal aufbauen, damit Eingaben erhalten bleiben)
     fetch('/api/games').then((r) => r.json()).then((list) => {
       $('#games').innerHTML = list
         .map(
-          (g) => `<div class="game-card" data-game="${g.id}">
-            <div class="ge">${g.emoji}</div>
-            <h3>${esc(g.name)}</h3>
-            <p>${esc(g.desc)}</p>
-            ${g.options.length ? `<div class="opts">${g.options.map((o) => `<span>${esc(o.label)}</span><input type="number" data-opt="${o.key}" min="${o.min}" max="${o.max}" value="${o.default}">`).join('')}</div>` : ''}
-            <div class="need">ab ${g.minPlayers} Spieler${g.minPlayers > 1 ? 'n' : ''}</div>
-            <button class="btn primary" data-start="${g.id}">▶ Starten</button>
+          (g, i) => `<div class="game-card" data-game="${g.id}">
+            <div class="num">SPIEL 0${i + 1}</div>
+            <h2 style="margin:0">${esc(g.name)}</h2>
+            <p>${esc(g.short)}</p>
+            <div class="opts">${g.options.map((o) => `<span>${esc(o.label)}</span><input type="number" data-opt="${o.key}" min="${o.min}" max="${o.max}" value="${o.default}">`).join('')}</div>
+            <button class="btn primary block" data-start="${g.id}">Starten</button>
           </div>`
         )
         .join('');
     });
-
     $('#games').addEventListener('click', (e) => {
       const b = e.target.closest('[data-start]');
       if (!b) return;
-      const card = b.closest('.game-card');
       const options = {};
-      card.querySelectorAll('[data-opt]').forEach((i) => (options[i.dataset.opt] = i.value));
+      b.closest('.game-card').querySelectorAll('[data-opt]').forEach((i) => (options[i.dataset.opt] = i.value));
       cmd({ cmd: 'startGame', gameId: b.dataset.start, options });
     });
 
-    $('#controls').addEventListener('click', (e) => {
+    // ---- Spielsteuerung: Buttons mit data-action (Controls und Bearbeiten-Panel)
+    function sendAction(el) {
+      cmd({ cmd: 'action', action: el.dataset.action, payload: JSON.parse(el.dataset.payload || '{}') });
+    }
+    document.addEventListener('click', (e) => {
       const b = e.target.closest('[data-action]');
-      if (b) cmd({ cmd: 'action', action: b.dataset.action, payload: JSON.parse(b.dataset.payload || '{}') });
+      if (b && !b.closest('#my-player')) sendAction(b);
+    });
+    // Tastenkürzel: R = richtig, F = falsch, N = weiter
+    document.addEventListener('keydown', (e) => {
+      if (e.target.closest('input, textarea') || e.metaKey || e.ctrlKey) return;
+      const b = document.querySelector(`#controls [data-key="${e.key.toLowerCase()}"]`);
+      if (b) {
+        e.preventDefault();
+        sendAction(b);
+      }
     });
 
+    // ---- Spielerliste
     $('#players').addEventListener('click', (e) => {
       const b = e.target.closest('[data-pid]');
       if (!b) return;
@@ -149,21 +171,55 @@
       const p = state.players.find((x) => x.id === pid);
       if (b.dataset.do === 'kick') {
         if (confirm(`${p?.name} wirklich rauswerfen?`)) cmd({ cmd: 'kick', pid });
-      } else if (b.dataset.do === 'custom') {
-        const v = prompt(`Punkte für ${p?.name} ändern (z. B. 250 oder -100):`, '100');
+      } else if (b.dataset.do === 'score') {
+        const v = prompt(`Punkte für ${p?.name} ändern (z. B. 200 oder -100):`, '100');
         if (v !== null && Number(v)) cmd({ cmd: 'score', pid, delta: Number(v) });
-      } else cmd({ cmd: 'score', pid, delta: Number(b.dataset.delta) });
+      }
     });
 
+    // ---- Selbst mitspielen
+    $('#me-panel').addEventListener('click', (e) => {
+      if (e.target.id === 'host-join') {
+        const name = $('#host-name').value.trim();
+        if (!name) return toast('Bitte gib deinen Namen ein');
+        localStorage.setItem('spieleabend.hostname', name);
+        cmd({ cmd: 'hostJoin', name, photo: hostPhoto });
+      }
+      if (e.target.id === 'host-leave' && confirm('Nicht mehr mitspielen?')) cmd({ cmd: 'hostLeave' });
+    });
+    $('#me-panel').addEventListener('change', async (e) => {
+      if (e.target.id !== 'host-photo' || !e.target.files[0]) return;
+      hostPhoto = await readPhoto(e.target.files[0]);
+      try { localStorage.setItem('spieleabend.photo', hostPhoto); } catch (err) {}
+      if (state && state.hostPid) socket.emit('profile:update', { photo: hostPhoto });
+      else renderMe(state);
+    });
+
+    function renderMe(s) {
+      const P = playerMap(s);
+      const me = s.hostPid && P[s.hostPid];
+      if (me) {
+        setHTML($('#me-panel'), `<div class="panel-head"><h3>Du spielst mit</h3><button class="btn xs ghost danger" id="host-leave">Aufhören</button></div>
+          <div class="row">${av(me, 44)}<b class="grow">${esc(me.name)}</b><label class="btn xs" for="host-photo">Foto</label></div>
+          <input type="file" id="host-photo" accept="image/*" class="hidden">`);
+      } else {
+        const saved = localStorage.getItem('spieleabend.hostname') || '';
+        setHTML($('#me-panel'), `<div class="panel-head"><h3>Selbst mitspielen?</h3></div>
+          <p class="muted" style="margin-top:0;font-size:.88rem">Du bekommst ein Profil wie alle anderen. Deine eigenen Lösungen bleiben verdeckt, bis du buzzerst.</p>
+          <div class="row">${av({ name: saved || '?', photo: hostPhoto, color: '#d7ff3a' }, 40)}<input id="host-name" class="grow" style="width:auto" placeholder="Dein Name" value="${esc(saved)}" maxlength="16"></div>
+          <div class="row" style="margin-top:10px"><label class="btn sm" for="host-photo">Foto</label><button class="btn sm primary grow" id="host-join">Mitspielen</button></div>
+          <input type="file" id="host-photo" accept="image/*" class="hidden">`);
+      }
+    }
+
     $('#end-game').addEventListener('click', () => {
-      if (confirm('Spiel beenden und zurück zur Auswahl? (Punkte bleiben erhalten)')) cmd({ cmd: 'endGame' });
+      if (confirm('Spiel beenden und zurück zur Auswahl?')) cmd({ cmd: 'endGame' });
     });
     $('#lock').addEventListener('click', () => cmd({ cmd: 'lock', value: !state.locked }));
-    $('#reset').addEventListener('click', () => {
-      if (confirm('Alle Punkte auf 0 setzen?')) cmd({ cmd: 'resetScores' });
-    });
+    $('#spicy').addEventListener('click', () => cmd({ cmd: 'spicy', value: !state.spicy }));
+    $('#reset').addEventListener('click', () => confirm('Alle Punkte auf 0 setzen?') && cmd({ cmd: 'resetScores' }));
     $('#close').addEventListener('click', () => {
-      if (!confirm('Raum wirklich schließen? Alle Spieler werden rausgeworfen.')) return;
+      if (!confirm('Raum wirklich schließen? Alle werden rausgeworfen.')) return;
       socket.emit('host:cmd', { cmd: 'closeRoom' }, () => {
         localStorage.removeItem(KEY);
         location.href = '/';
@@ -173,13 +229,14 @@
     socket.on('state', (s) => {
       state = s;
       syncTime(s);
+      checkBuzz(s);
       const online = s.players.filter((p) => p.connected).length;
-      $('#status').textContent = `🟢 Live · ${online} online · ${s.screens} Bildschirm${s.screens === 1 ? '' : 'e'} verbunden`;
-      $('#lock').textContent = s.locked ? '🔒 Lobby gesperrt' : '🔓 Lobby offen';
-      $('#lock').classList.toggle('danger', s.locked);
+      $('#status').textContent = `Live · ${online} online · ${s.screens} Bildschirm${s.screens === 1 ? '' : 'e'}`;
+      $('#lock').classList.toggle('on', s.locked);
+      $('#spicy').classList.toggle('on', s.spicy);
+      renderMe(s);
 
-      // Spielerliste nach Punkten sortiert
-      $('#pcount').textContent = s.players.length;
+      $('#pcount').textContent = s.players.length ? `(${s.players.length})` : '';
       $('#no-players').classList.toggle('hidden', s.players.length > 0);
       setHTML(
         $('#players'),
@@ -187,16 +244,13 @@
           .sort((a, b) => b.score - a.score)
           .map(
             (p) => `<li>
-              <span class="dot ${p.connected ? '' : 'off'}" title="${p.connected ? 'online' : 'offline'}"></span>
-              <span class="av">${esc(p.avatar)}</span>
-              <span class="nm" title="${esc(p.name)}">${esc(p.name)}</span>
-              <span class="sc">${fmtNum(p.score)}</span>
+              <span class="av-wrap">${av(p, 32)}<span class="online ${p.connected ? '' : 'off'}"></span></span>
+              <span class="nm">${esc(p.name)}${p.isHost ? ' <span class="tag">Du</span>' : ''}</span>
               <span class="tools">
-                <button class="btn" data-pid="${p.id}" data-delta="100" title="+100">+</button>
-                <button class="btn" data-pid="${p.id}" data-delta="-100" title="-100">−</button>
-                <button class="btn" data-pid="${p.id}" data-do="custom" title="Punkte ändern">✎</button>
-                <button class="btn danger" data-pid="${p.id}" data-do="kick" title="Rauswerfen">✖</button>
+                <button class="btn xs" data-pid="${p.id}" data-do="score" title="Punkte ändern">±</button>
+                ${p.isHost ? '' : `<button class="btn xs danger" data-pid="${p.id}" data-do="kick" title="Rauswerfen">✕</button>`}
               </span>
+              <span class="sc">${fmt(p.score)}</span>
             </li>`
           )
           .join('')
@@ -205,16 +259,28 @@
       const running = !!s.game;
       $('#picker').classList.toggle('hidden', running);
       $('#running').classList.toggle('hidden', !running);
-      if (running) {
-        $('#game-title').textContent = `${s.gameEmoji} ${s.gameName}`;
-        setHTML(
-          $('#controls'),
-          s.controls
-            .map((c) => `<button class="btn ${c.primary ? 'primary' : ''}" data-action="${c.action}" data-payload='${esc(JSON.stringify(c.payload || {}))}'>${esc(c.label)}</button>`)
-            .join('') || '<span class="muted">Spiel ist beendet – starte ein neues über „Spiel beenden“.</span>'
-        );
-        setHTML($('#preview'), renderStage(s, { host: true }));
-      }
+      if (!running) return;
+
+      $('#game-title').textContent = s.gameName;
+      setHTML(
+        $('#controls'),
+        s.controls
+          .map((c) => `<button class="btn lg ${c.kind || ''}" data-action="${c.action}" data-payload='${attr(c.payload || {})}' ${c.key ? `data-key="${c.key}"` : ''}>${esc(c.label)}${c.key ? ` <kbd>${c.key.toUpperCase()}</kbd>` : ''}</button>`)
+          .join('') || '<span class="muted">Spiel vorbei – über „Spiel beenden“ geht’s zurück zur Auswahl.</span>'
+      );
+      setHTML($('#preview'), renderStage(s));
+      setHTML($('#host-panel'), renderHostPanel(s));
+
+      // Eigene Spieler-Ansicht, wenn der Host mitspielt
+      const mine = $('#my-player');
+      if (s.hostPid && s.playerGame) {
+        mine.classList.remove('hidden');
+        const ps = { ...s, game: s.playerGame, me: { id: s.hostPid } };
+        const html = renderPlayer(ps);
+        const attn = /data-input|data-form/.test(html);
+        mine.classList.toggle('attn', attn);
+        setHTML(mine, `<div class="panel-head"><h3>Dein Handy</h3>${attn ? '<span class="tag accent">Du bist gefragt</span>' : ''}</div><div style="display:flex;flex-direction:column;gap:12px">${html}</div>`);
+      } else mine.classList.add('hidden');
     });
   </script>
 </body>

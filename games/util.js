@@ -24,17 +24,26 @@ function topKeys(counts) {
   return Object.keys(counts).filter((k) => counts[k] === max);
 }
 
-// Haben alle verbundenen Spieler (optional: aus einer Teilnehmerliste) abgegeben?
-function allAnswered(room, answers, participants) {
-  const active = room.activePlayers().filter((p) => !participants || participants.includes(p.id));
-  return active.length > 0 && active.every((p) => answers[p.id] !== undefined);
+function fmtNum(n) {
+  return Number(n).toLocaleString('de-DE', { maximumFractionDigits: 3 });
 }
 
-function standings(room) {
-  return room
-    .playerList()
-    .map((p) => ({ id: p.id, name: p.name, avatar: p.avatar, score: p.score }))
-    .sort((a, b) => b.score - a.score);
+// Antworttext inkl. Toleranz, z. B. "330 m (± 10)"
+function answerText(q) {
+  if (typeof q.a !== 'number') return String(q.a);
+  let s = fmtNum(q.a) + (q.unit ? ' ' + q.unit : '');
+  if (q.tol) s += ` (± ${fmtNum(q.tol)})`;
+  return s;
 }
 
-module.exports = { shuffle, pick, tally, topKeys, allAnswered, standings };
+// Für Text-Vergleiche: klein, ohne Akzente/Satzzeichen
+function normalize(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+module.exports = { shuffle, pick, tally, topKeys, fmtNum, answerText, normalize };
