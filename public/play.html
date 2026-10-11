@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0b1e">
+  <title>Spieleabend – Mitspielen</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="player">
+    <div class="topbar">
+      <div class="me" id="me"></div>
+      <div class="score-pill" id="score">0</div>
+    </div>
+    <div id="view"><div class="card center"><div class="spinner"></div><p>Verbinde…</p></div></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/common.js"></script>
+  <script>
+    const session = JSON.parse(localStorage.getItem('spieleabend.player') || 'null');
+    const view = $('#view');
+    let ended = false;
+    if (!session || !session.playerId) location.href = '/';
+
+    bindPlayerInputs(view);
+
+    function end(title, text) {
+      ended = true;
+      localStorage.removeItem('spieleabend.player');
+      setHTML(view, `<div class="card center"><div class="huge">👋</div><h2>${esc(title)}</h2><p class="muted">${esc(text)}</p>
+        <a class="btn primary big" href="/" style="display:block;text-decoration:none">Zur Startseite</a></div>`);
+      socket.disconnect();
+    }
+
+    socket.on('connect', () => {
+      if (ended) return;
+      socket.emit('player:join', session, (res) => {
+        if (!res.ok) end('Raum nicht gefunden', res.error);
+      });
+    });
+    socket.on('disconnect', () => {
+      if (!ended) setHTML(view, waitingHTML('Verbindung verloren…', 'Wir versuchen es automatisch wieder.'));
+    });
+    socket.on('kicked', ({ reason }) => end('Tschüss!', reason));
+    socket.on('room:closed', () => end('Der Spieleabend ist vorbei', 'Der Host hat den Raum geschlossen. Danke fürs Mitspielen!'));
+
+    socket.on('state', (state) => {
+      syncTime(state);
+      if (!state.me) return;
+      $('#me').innerHTML = `<span class="av">${esc(state.me.avatar)}</span>${esc(state.me.name)}`;
+      $('#score').textContent = fmtNum(state.me.score) + ' Pkt.';
+
+      if (!state.game) {
+        const others = state.players
+          .map((p) => `<div class="lobby-player ${p.connected ? '' : 'off'}"><span class="av">${esc(p.avatar)}</span>${esc(p.name)}</div>`)
+          .join('');
+        const anyScore = state.players.some((p) => p.score !== 0);
+        setHTML(view, `
+          <div class="card center">
+            <div class="huge">${esc(state.me.avatar)}</div>
+            <h2>Du bist drin!</h2>
+            <p class="muted">Raum <b>${esc(state.code)}</b> · Warte, bis der Host ein Spiel startet…</p>
+          </div>
+          ${anyScore ? `<h3>🏆 Bestenliste</h3>${standingsHTML([...state.players].sort((a, b) => b.score - a.score))}` : ''}
+          <h3>Mit dabei (${state.players.length})</h3>
+          <div class="lobby-players">${others}</div>
+          <p class="center"><button class="btn small danger" id="leave">Raum verlassen</button></p>`);
+        return;
+      }
+      setHTML(view, renderPlayer(state));
+    });
+
+    view.addEventListener('click', (e) => {
+      if (e.target.id === 'leave' && confirm('Willst du den Raum wirklich verlassen?')) {
+        socket.emit('player:leave', null, () => end('Du hast den Raum verlassen', 'Bis zum nächsten Mal!'));
+      }
+    });
+  </script>
+</body>
+</html>

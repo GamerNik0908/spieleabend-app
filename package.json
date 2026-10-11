@@ -1,0 +1,29 @@
+{
+  "name": "spieleabend-app",
+  "version": "1.0.0",
+  "description": "Spieleabend: Partyspiele im Browser – Spieler joinen mit Code vom eigenen Handy, der Host steuert alles aus der Kommandozentrale.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/smoke.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GamerNik0908/spieleabend-app.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/GamerNik0908/spieleabend-app/issues"
+  },
+  "homepage": "https://github.com/GamerNik0908/spieleabend-app#readme",
+  "dependencies": {
+    "express": "^4.22.3",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  },
+  "private": true
+}

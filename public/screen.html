@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spieleabend – Bildschirm</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="screen">
+    <main id="main"><div class="center"><div class="spinner"></div></div></main>
+    <footer id="footer"></footer>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/common.js"></script>
+  <script>
+    const code = (new URLSearchParams(location.search).get('code') || '').toUpperCase();
+    let joinBase = location.origin;
+
+    fetch('/api/info').then((r) => r.json()).then((info) => {
+      if (['localhost', '127.0.0.1', '::1'].includes(location.hostname) && info.lan.length) joinBase = info.lan[0];
+      if (lastState) render(lastState);
+    });
+    let lastState = null;
+
+    socket.on('connect', () => {
+      socket.emit('screen:join', { code }, (res) => {
+        if (!res.ok) setHTML($('#main'), `<div class="center"><h1>Raum ${esc(code)} nicht gefunden 😕</h1></div>`);
+      });
+    });
+    socket.on('room:closed', () => setHTML($('#main'), '<div class="center"><div class="huge">👋</div><h1>Danke fürs Mitspielen!</h1></div>'));
+
+    socket.on('state', render);
+    function render(s) {
+      lastState = s;
+      syncTime(s);
+      const url = `${joinBase}/?code=${s.code}`;
+      const shortUrl = joinBase.replace(/^https?:\/\//, '');
+      if (!s.game) {
+        const anyScore = s.players.some((p) => p.score !== 0);
+        setHTML(
+          $('#main'),
+          `<div class="screen-lobby">
+            <div class="logo">🎮 Spieleabend</div>
+            <div class="join-row">
+              <img src="/qr.svg?u=${encodeURIComponent(url)}" alt="QR-Code">
+              <div>
+                <p class="lead">Geh auf <b>${esc(shortUrl)}</b> und gib den Code ein:</p>
+                <div class="room-code">${esc(s.code)}</div>
+                ${s.locked ? '<p class="lead">🔒 Lobby ist gerade gesperrt</p>' : ''}
+              </div>
+            </div>
+            ${anyScore ? `<h2>🏆 Bestenliste</h2>${standingsHTML([...s.players].sort((a, b) => b.score - a.score), 8)}` : `
+            <h2>${s.players.length ? `${s.players.length} Spieler sind dabei` : 'Warte auf Spieler…'}</h2>
+            <div class="lobby-players">${s.players.map((p) => `<div class="lobby-player ${p.connected ? '' : 'off'}"><span class="av">${esc(p.avatar)}</span>${esc(p.name)}</div>`).join('')}</div>`}
+          </div>`
+        );
+        $('#footer').textContent = '';
+        return;
+      }
+      setHTML($('#main'), renderStage(s));
+      $('#footer').textContent = `${s.gameEmoji} ${s.gameName} · Mitmachen: ${shortUrl} · Code ${s.code}`;
+    }
+  </script>
+</body>
+</html>

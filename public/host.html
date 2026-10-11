@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spieleabend – Kommandozentrale</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="host">
+    <div class="host-top">
+      <div>
+        <h1>🎛️ Kommandozentrale</h1>
+        <div class="muted" id="status">Verbinde…</div>
+      </div>
+      <div class="join-box">
+        <img id="qr" alt="QR-Code zum Beitreten">
+        <div>
+          <div class="muted">Raum-Code</div>
+          <div class="room-code" id="code">····</div>
+          <div class="join-url" id="join-url"></div>
+        </div>
+      </div>
+      <div class="host-actions">
+        <a class="btn" id="screen-link" target="_blank">📺 Bildschirm öffnen</a>
+        <button class="btn" id="lock">🔓 Lobby offen</button>
+        <button class="btn danger" id="close">✖ Raum schließen</button>
+      </div>
+    </div>
+
+    <div class="host-grid">
+      <aside class="panel">
+        <h2><span>👥 Spieler (<span id="pcount">0</span>)</span><button class="btn small" id="reset">Punkte ↺</button></h2>
+        <ul class="plist" id="players"></ul>
+        <p class="muted" id="no-players">Noch niemand da. Lass deine Freunde den Code eingeben oder den QR-Code scannen!</p>
+      </aside>
+
+      <main>
+        <section class="panel" id="picker">
+          <h2>🎲 Spiel auswählen</h2>
+          <div class="games-grid" id="games"></div>
+        </section>
+
+        <section class="panel hidden" id="running">
+          <div class="now-playing">
+            <h2 id="game-title"></h2>
+            <button class="btn danger" id="end-game">⏹ Spiel beenden</button>
+          </div>
+          <div class="controls" id="controls"></div>
+          <div class="preview" id="preview"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/common.js"></script>
+  <script>
+    const KEY = 'spieleabend.host';
+    const params = new URLSearchParams(location.search);
+    let session = params.get('new') ? null : JSON.parse(localStorage.getItem(KEY) || 'null');
+    let state = null;
+    let joinBase = location.origin;
+    history.replaceState(null, '', '/host.html');
+
+    function toast(msg) {
+      const t = document.createElement('div');
+      t.className = 'toast';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 3500);
+    }
+
+    function cmd(data) {
+      socket.emit('host:cmd', data, (res) => {
+        if (res && !res.ok && res.error) toast(res.error);
+      });
+    }
+
+    // Wenn der Host über localhost geöffnet ist, zeigen wir die WLAN-Adresse für die Handys
+    fetch('/api/info').then((r) => r.json()).then((info) => {
+      if (['localhost', '127.0.0.1', '::1'].includes(location.hostname) && info.lan.length) joinBase = info.lan[0];
+      updateJoin();
+    });
+
+    function updateJoin() {
+      if (!session) return;
+      const url = `${joinBase}/?code=${session.code}`;
+      $('#code').textContent = session.code;
+      $('#join-url').textContent = url.replace(/^https?:\/\//, '');
+      $('#qr').src = `/qr.svg?u=${encodeURIComponent(url)}`;
+      $('#screen-link').href = `/screen.html?code=${session.code}`;
+      document.title = `Spieleabend ${session.code} – Kommandozentrale`;
+    }
+
+    function create() {
+      socket.emit('host:create', null, (res) => {
+        session = { code: res.code, hostToken: res.hostToken };
+        localStorage.setItem(KEY, JSON.stringify(session));
+        updateJoin();
+      });
+    }
+
+    socket.on('connect', () => {
+      if (!session) return create();
+      socket.emit('host:resume', session, (res) => {
+        if (res.ok) updateJoin();
+        else create();
+      });
+    });
+    socket.on('disconnect', () => ($('#status').textContent = '⚠️ Verbindung verloren – verbinde neu…'));
+
+    // --- Spielauswahl (einmalig aufbauen, damit Eingaben erhalten bleiben)
+    fetch('/api/games').then((r) => r.json()).then((list) => {
+      $('#games').innerHTML = list
+        .map(
+          (g) => `<div class="game-card" data-game="${g.id}">
+            <div class="ge">${g.emoji}</div>
+            <h3>${esc(g.name)}</h3>
+            <p>${esc(g.desc)}</p>
+            ${g.options.length ? `<div class="opts">${g.options.map((o) => `<span>${esc(o.label)}</span><input type="number" data-opt="${o.key}" min="${o.min}" max="${o.max}" value="${o.default}">`).join('')}</div>` : ''}
+            <div class="need">ab ${g.minPlayers} Spieler${g.minPlayers > 1 ? 'n' : ''}</div>
+            <button class="btn primary" data-start="${g.id}">▶ Starten</button>
+          </div>`
+        )
+        .join('');
+    });
+
+    $('#games').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-start]');
+      if (!b) return;
+      const card = b.closest('.game-card');
+      const options = {};
+      card.querySelectorAll('[data-opt]').forEach((i) => (options[i.dataset.opt] = i.value));
+      cmd({ cmd: 'startGame', gameId: b.dataset.start, options });
+    });
+
+    $('#controls').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-action]');
+      if (b) cmd({ cmd: 'action', action: b.dataset.action, payload: JSON.parse(b.dataset.payload || '{}') });
+    });
+
+    $('#players').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pid]');
+      if (!b) return;
+      const pid = b.dataset.pid;
+      const p = state.players.find((x) => x.id === pid);
+      if (b.dataset.do === 'kick') {
+        if (confirm(`${p?.name} wirklich rauswerfen?`)) cmd({ cmd: 'kick', pid });
+      } else if (b.dataset.do === 'custom') {
+        const v = prompt(`Punkte für ${p?.name} ändern (z. B. 250 oder -100):`, '100');
+        if (v !== null && Number(v)) cmd({ cmd: 'score', pid, delta: Number(v) });
+      } else cmd({ cmd: 'score', pid, delta: Number(b.dataset.delta) });
+    });
+
+    $('#end-game').addEventListener('click', () => {
+      if (confirm('Spiel beenden und zurück zur Auswahl? (Punkte bleiben erhalten)')) cmd({ cmd: 'endGame' });
+    });
+    $('#lock').addEventListener('click', () => cmd({ cmd: 'lock', value: !state.locked }));
+    $('#reset').addEventListener('click', () => {
+      if (confirm('Alle Punkte auf 0 setzen?')) cmd({ cmd: 'resetScores' });
+    });
+    $('#close').addEventListener('click', () => {
+      if (!confirm('Raum wirklich schließen? Alle Spieler werden rausgeworfen.')) return;
+      socket.emit('host:cmd', { cmd: 'closeRoom' }, () => {
+        localStorage.removeItem(KEY);
+        location.href = '/';
+      });
+    });
+
+    socket.on('state', (s) => {
+      state = s;
+      syncTime(s);
+      const online = s.players.filter((p) => p.connected).length;
+      $('#status').textContent = `🟢 Live · ${online} online · ${s.screens} Bildschirm${s.screens === 1 ? '' : 'e'} verbunden`;
+      $('#lock').textContent = s.locked ? '🔒 Lobby gesperrt' : '🔓 Lobby offen';
+      $('#lock').classList.toggle('danger', s.locked);
+
+      // Spielerliste nach Punkten sortiert
+      $('#pcount').textContent = s.players.length;
+      $('#no-players').classList.toggle('hidden', s.players.length > 0);
+      setHTML(
+        $('#players'),
+        [...s.players]
+          .sort((a, b) => b.score - a.score)
+          .map(
+            (p) => `<li>
+              <span class="dot ${p.connected ? '' : 'off'}" title="${p.connected ? 'online' : 'offline'}"></span>
+              <span class="av">${esc(p.avatar)}</span>
+              <span class="nm" title="${esc(p.name)}">${esc(p.name)}</span>
+              <span class="sc">${fmtNum(p.score)}</span>
+              <span class="tools">
+                <button class="btn" data-pid="${p.id}" data-delta="100" title="+100">+</button>
+                <button class="btn" data-pid="${p.id}" data-delta="-100" title="-100">−</button>
+                <button class="btn" data-pid="${p.id}" data-do="custom" title="Punkte ändern">✎</button>
+                <button class="btn danger" data-pid="${p.id}" data-do="kick" title="Rauswerfen">✖</button>
+              </span>
+            </li>`
+          )
+          .join('')
+      );
+
+      const running = !!s.game;
+      $('#picker').classList.toggle('hidden', running);
+      $('#running').classList.toggle('hidden', !running);
+      if (running) {
+        $('#game-title').textContent = `${s.gameEmoji} ${s.gameName}`;
+        setHTML(
+          $('#controls'),
+          s.controls
+            .map((c) => `<button class="btn ${c.primary ? 'primary' : ''}" data-action="${c.action}" data-payload='${esc(JSON.stringify(c.payload || {}))}'>${esc(c.label)}</button>`)
+            .join('') || '<span class="muted">Spiel ist beendet – starte ein neues über „Spiel beenden“.</span>'
+        );
+        setHTML($('#preview'), renderStage(s, { host: true }));
+      }
+    });
+  </script>
+</body>
+</html>

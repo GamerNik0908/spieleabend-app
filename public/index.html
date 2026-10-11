@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Spieleabend</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="home">
+    <header>
+      <div class="logo">🎮 Spieleabend</div>
+      <p class="muted">Quiz, Spion, Wahrheit oder Pflicht & mehr – mit euren eigenen Handys.</p>
+    </header>
+
+    <form class="card" id="join-form" autocomplete="off">
+      <h2>Mitspielen</h2>
+      <label for="code">Raum-Code</label>
+      <input id="code" class="code-input" maxlength="4" placeholder="ABCD" required>
+      <label for="name">Dein Name</label>
+      <input id="name" maxlength="16" placeholder="z. B. Lena" required>
+      <label>Dein Avatar</label>
+      <div class="avatars" id="avatars"></div>
+      <button class="btn primary big" style="margin-top:16px" type="submit">Los geht's 🚀</button>
+      <div class="error" id="error"></div>
+    </form>
+
+    <div class="or">— oder —</div>
+
+    <div class="card center">
+      <h2>Du bist der Host?</h2>
+      <p class="muted">Starte einen neuen Spieleabend und steuere alles aus deiner Kommandozentrale.</p>
+      <a class="btn big" href="/host.html?new=1" style="display:block;text-decoration:none">🎛️ Spieleabend starten</a>
+      <div class="feature-list" id="games"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/common.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const saved = JSON.parse(localStorage.getItem('spieleabend.player') || '{}');
+    let avatar = saved.avatar || AVATARS[Math.floor(Math.random() * AVATARS.length)];
+
+    $('#code').value = (params.get('code') || '').toUpperCase();
+    $('#name').value = saved.name || '';
+    if ($('#code').value) $('#name').focus();
+
+    function drawAvatars() {
+      $('#avatars').innerHTML = AVATARS.map(
+        (a) => `<button type="button" class="${a === avatar ? 'sel' : ''}" data-a="${a}">${a}</button>`
+      ).join('');
+    }
+    drawAvatars();
+    $('#avatars').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-a]');
+      if (b) { avatar = b.dataset.a; drawAvatars(); }
+    });
+    $('#code').addEventListener('input', (e) => (e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '')));
+
+    fetch('/api/games').then((r) => r.json()).then((list) => {
+      $('#games').innerHTML = list.map((g) => `<span class="chip">${g.emoji} ${esc(g.name)}</span>`).join('');
+    });
+
+    $('#join-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const code = $('#code').value.trim().toUpperCase();
+      const name = $('#name').value.trim();
+      // Bin ich schon in diesem Raum? Dann mit gleicher Identität wieder rein
+      const playerId = saved.code === code && saved.name === name ? saved.playerId : undefined;
+      socket.emit('player:join', { code, name, avatar, playerId }, (res) => {
+        if (!res.ok) return ($('#error').textContent = res.error);
+        localStorage.setItem('spieleabend.player', JSON.stringify({ code, name, avatar, playerId: res.playerId }));
+        location.href = '/play.html';
+      });
+    });
+  </script>
+</body>
+</html>
